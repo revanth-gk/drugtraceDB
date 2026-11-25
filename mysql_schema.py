@@ -6,6 +6,156 @@ Each entry in STATEMENTS is sent to MySQL as one statement, so the compound
 
 from __future__ import annotations
 
+from security import (
+    BCRYPT_HASH_PATTERN,
+    RESERVED_USERNAMES,
+    USERNAME_MAX,
+    USERNAME_MIN,
+    USERNAME_PATTERN,
+)
+
+# --------------------------------------------------------------------------- #
+# app_user: account security enforced by MySQL itself
+# --------------------------------------------------------------------------- #
+# Every rule is a named CHECK constraint so that db.apply_user_security() can
+# add any that are missing to a database created by an older version.
+_reserved_sql = ", ".join(f"'{name}'" for name in RESERVED_USERNAMES)
+
+APP_USER_CHECKS: dict[str, str] = {
+    # length, character set and shape of usernames
+    "chk_user_username_len": f"CHAR_LENGTH(username) BETWEEN {USERNAME_MIN} AND {USERNAME_MAX}",
+    "chk_user_username_chars": f"REGEXP_LIKE(username, '{USERNAME_PATTERN}', 'c')",
+    "chk_user_username_reserved": f"username NOT IN ({_reserved_sql})",
+    # only a bcrypt hash (cost >= 12) may be stored: plaintext, MD5, SHA-x,
+    # empty strings or low-cost hashes are all rejected by the server
+    "chk_user_password_bcrypt": f"REGEXP_LIKE(password_hash, '{BCRYPT_HASH_PATTERN}', 'c')",
+    "chk_user_failed_logins": "failed_logins BETWEEN 0 AND 1000",
+}
+
+# Columns added after the first release, with the DDL to add them.
+APP_USER_EXTRA_COLUMNS: dict[str, str] = {
+    "created_at": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "password_changed_at": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    "failed_logins": "SMALLINT UNSIGNED NOT NULL DEFAULT 0",
+    "locked_until": "DATETIME NULL",
+    "last_login_at": "DATETIME NULL",
+}
+
+APP_USER_TABLE = (
+    """
+    CREATE TABLE app_user (
+      user_id       INT AUTO_INCREMENT PRIMARY KEY,
+      username      VARCHAR(30) NOT NULL,
+      password_hash CHAR(60) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+      role          ENUM('OPERATOR','RECALL_OFFICER','VIEWER') NOT NULL,
+"""
+    + "".join(f"      {col} {ddl},\n" for col, ddl in APP_USER_EXTRA_COLUMNS.items())
+    + "      CONSTRAINT uq_app_user_username UNIQUE (username),\n"
+    + ",\n".join(f"      CONSTRAINT {name} CHECK ({expr})" for name, expr in APP_USER_CHECKS.items())
+    + "\n    ) ENGINE=InnoDB\n"
+)
+
+# Triggers and procedures on app_user. They are dropped and recreated on every
+# start-up (see db.apply_user_security), so editing them here is enough.
+USER_SECURITY_DROPS: list[str] = [
+    "DROP TRIGGER IF EXISTS trg_user_before_insert",
+    "DROP TRIGGER IF EXISTS trg_user_before_update",
+    "DROP TRIGGER IF EXISTS trg_user_before_delete",
+    "DROP PROCEDURE IF EXISTS sp_register_login",
+]
+
+USER_SECURITY_OBJECTS: list[str] = [
+    # New rows cannot arrive pre-locked, with fake history or a forged
+    # creation time: the server owns these columns.
+    """
+    CREATE TRIGGER trg_user_before_insert BEFORE INSERT ON app_user
+    FOR EACH ROW
+    BEGIN
+      SET NEW.created_at = NOW(),
+          NEW.password_changed_at = NOW(),
+          NEW.failed_logins = 0,
+          NEW.locked_until = NULL,
+          NEW.last_login_at = NULL;
+    END
+    """,
+    """
+    CREATE TRIGGER trg_user_before_update BEFORE UPDATE ON app_user
+    FOR EACH ROW
+    BEGIN
+      -- usernames are immutable: audit records refer to them
+      IF CAST(NEW.username AS BINARY) <> CAST(OLD.username AS BINARY) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Usernames cannot be changed';
+      END IF;
+      IF NEW.created_at <> OLD.created_at THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'created_at is read-only';
+      END IF;
+      -- a password change stamps the time (used to end old sessions)
+      -- and clears any lockout
+      IF CAST(NEW.password_hash AS BINARY) <> CAST(OLD.password_hash AS BINARY) THEN
+        SET NEW.password_changed_at = NOW(),
+            NEW.failed_logins = 0,
+            NEW.locked_until = NULL;
+      ELSEIF NEW.password_changed_at <> OLD.password_changed_at THEN
+        SET NEW.password_changed_at = OLD.password_changed_at;
+      END IF;
+      -- never leave the system without an account that can manage users
+      IF OLD.role = 'RECALL_OFFICER' AND NEW.role <> 'RECALL_OFFICER'
+         AND (SELECT COUNT(*) FROM app_user WHERE role = 'RECALL_OFFICER') <= 1 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot demote the last RECALL_OFFICER';
+      END IF;
+    END
+    """,
+    """
+    CREATE TRIGGER trg_user_before_delete BEFORE DELETE ON app_user
+    FOR EACH ROW
+    BEGIN
+      IF OLD.role = 'RECALL_OFFICER'
+         AND (SELECT COUNT(*) FROM app_user WHERE role = 'RECALL_OFFICER') <= 1 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot delete the last RECALL_OFFICER';
+      END IF;
+    END
+    """,
+    # Login bookkeeping lives in the database so the lockout rule holds even
+    # if another client authenticates against this table. The caller reports
+    # whether the password matched; the procedure decides the outcome:
+    #   OK      - sign-in allowed, counters reset
+    #   FAILED  - wrong password, failure counted
+    #   LOCKED  - account locked (now, or by this failure); sign-in refused
+    """
+    CREATE PROCEDURE sp_register_login(
+      IN p_user INT, IN p_password_ok BOOLEAN, OUT p_status VARCHAR(10))
+    BEGIN
+      DECLARE v_failed INT;
+      DECLARE v_locked DATETIME;
+      DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
+
+      START TRANSACTION;
+      SELECT failed_logins, locked_until INTO v_failed, v_locked
+        FROM app_user WHERE user_id = p_user FOR UPDATE;
+
+      IF v_failed IS NULL THEN
+        SET p_status = 'FAILED';
+      ELSEIF v_locked IS NOT NULL AND v_locked > NOW() THEN
+        SET p_status = 'LOCKED';
+      ELSEIF p_password_ok THEN
+        UPDATE app_user
+           SET failed_logins = 0, locked_until = NULL, last_login_at = NOW()
+         WHERE user_id = p_user;
+        SET p_status = 'OK';
+      ELSEIF v_failed + 1 >= 5 THEN
+        UPDATE app_user
+           SET failed_logins = 0, locked_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+         WHERE user_id = p_user;
+        SET p_status = 'LOCKED';
+      ELSE
+        UPDATE app_user SET failed_logins = v_failed + 1 WHERE user_id = p_user;
+        SET p_status = 'FAILED';
+      END IF;
+      COMMIT;
+    END
+    """,
+]
+
 STATEMENTS: list[str] = [
     """
     CREATE TABLE manufacturer (
@@ -58,14 +208,7 @@ STATEMENTS: list[str] = [
         FOREIGN KEY (org_id) REFERENCES supply_org(org_id)
     ) ENGINE=InnoDB
     """,
-    """
-    CREATE TABLE app_user (
-      user_id       INT AUTO_INCREMENT PRIMARY KEY,
-      username      VARCHAR(50) NOT NULL UNIQUE,
-      password_hash VARCHAR(100) NOT NULL,
-      role          ENUM('OPERATOR','RECALL_OFFICER','VIEWER') NOT NULL
-    ) ENGINE=InnoDB
-    """,
+    APP_USER_TABLE,
     """
     CREATE TABLE stock_movement (
       movement_id      INT AUTO_INCREMENT PRIMARY KEY,

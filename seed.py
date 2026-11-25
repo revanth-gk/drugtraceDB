@@ -16,15 +16,15 @@ from __future__ import annotations
 import random
 from datetime import date, timedelta
 
-import bcrypt
 import mysql.connector
 
 import db
 import logs
 from movements import record_movement
 from recalls import create_recall
+from security import hash_password, validate_password
 
-DEMO_PASSWORD = "demo123"
+DEMO_PASSWORD = "Demo#Trace2026"
 
 MANUFACTURERS = [
     ("DEMO-Meridian Pharma", "LIC-DEMO-001"),
@@ -126,7 +126,7 @@ RECALLS = [
 
 
 def _hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return hash_password(password)
 
 
 def seed_all(conn: mysql.connector.MySQLConnection) -> None:
@@ -193,6 +193,7 @@ def seed_all(conn: mysql.connector.MySQLConnection) -> None:
         )
 
     for username, role in USERS:
+        assert not validate_password(DEMO_PASSWORD, username), "demo password breaks policy"
         db.execute(
             conn,
             "INSERT INTO app_user (username, password_hash, role) VALUES (%s, %s, %s)",

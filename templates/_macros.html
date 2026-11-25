@@ -1,0 +1,49 @@
+{# Shared form widgets. Client-side checks mirror security.py; the server and
+   the MySQL constraints enforce the same rules regardless. #}
+
+{% macro password_input(id, name, label, autocomplete="new-password", hint=None, required=True, autofocus=False) -%}
+<div class="field">
+  <label for="{{ id }}">{{ label }}</label>
+  <div class="input-group">
+    <input type="password" id="{{ id }}" name="{{ name }}" autocomplete="{{ autocomplete }}"
+           maxlength="{{ password_max if autocomplete == 'new-password' else 256 }}"
+           {{ 'required' if required }} {{ 'autofocus' if autofocus }} spellcheck="false">
+    <button type="button" class="input-addon" data-password-toggle="{{ id }}" aria-pressed="false"
+            aria-label="Show password">Show</button>
+  </div>
+  <p class="field-hint warn-text" data-capslock-for="{{ id }}" hidden>Caps Lock is on</p>
+  {% if hint %}<p class="field-hint">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro password_policy(for_id, username_source=None, username=None, confirm_source=None) -%}
+<div class="policy" data-password-policy="{{ for_id }}"
+     data-min="{{ password_min }}" data-max="{{ password_max }}"
+     {% if username_source %}data-username-source="{{ username_source }}"{% endif %}
+     {% if username %}data-username="{{ username }}"{% endif %}
+     {% if confirm_source %}data-confirm-source="{{ confirm_source }}"{% endif %}>
+  <div class="meter" aria-hidden="true"><span class="meter-fill" data-level="-1"></span></div>
+  <div class="meter-row">
+    <span class="field-hint">Requirements</span>
+    <span class="meter-label field-hint" aria-live="polite"></span>
+  </div>
+  <ul class="rules">
+    {% for key, text in password_rules %}
+    <li data-rule="{{ key }}">{{ text }}</li>
+    {% endfor %}
+  </ul>
+  {% if confirm_source %}<p class="field-hint error-text" data-match-hint hidden>Passwords do not match.</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro username_input(id, name, value="") -%}
+<div class="field">
+  <label for="{{ id }}">Username</label>
+  <input type="text" id="{{ id }}" name="{{ name }}" value="{{ value }}" required
+         minlength="{{ username_min }}" maxlength="{{ username_max }}"
+         data-username-input
+         data-pattern="{{ username_pattern }}" autocomplete="off" autocapitalize="none"
+         spellcheck="false" placeholder="e.g. priya.sharma" aria-describedby="{{ id }}-hint">
+  <p class="field-hint" id="{{ id }}-hint">{{ username_rules|join(' · ') }}</p>
+</div>
+{%- endmacro %}

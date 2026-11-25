@@ -10,7 +10,7 @@
   </div>
 </div>
 
-<div class="card" style="margin-bottom: 1rem;">
+<div class="card">
   <div class="filter-row">
     <a class="chip {{ 'chip-active' if days == 30 }}" href="{{ url_for('expiry', days=30) }}">Expiring in &le; 30 days</a>
     <a class="chip {{ 'chip-active' if days == 60 }}" href="{{ url_for('expiry', days=60) }}">Expiring in &le; 60 days</a>

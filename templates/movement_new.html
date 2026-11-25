@@ -94,24 +94,3 @@
   </div>
 </form>
 {% endblock %}
-
-{% block scripts %}
-<script>
-  // Small usability aid only; the server is the source of truth.
-  const rules = {
-    INITIAL_RECEIPT: { from: false, to: true },
-    TRANSFER:         { from: true,  to: true },
-    RETURN:           { from: true,  to: true },
-    DAMAGE:           { from: true,  to: false },
-    EXPIRY:           { from: true,  to: false },
-  };
-  function applyPattern() {
-    const type = document.getElementById('movement_type').value;
-    const rule = rules[type];
-    document.getElementById('from_facility_id').disabled = !rule.from;
-    document.getElementById('to_facility_id').disabled = !rule.to;
-  }
-  document.getElementById('movement_type').addEventListener('change', applyPattern);
-  applyPattern();
-</script>
-{% endblock %}

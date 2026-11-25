@@ -46,3 +46,8 @@ NL_READER_PASSWORD = os.environ.get("DRUGTRACE_NL_PASSWORD", "")
 
 # LLM fallback (Gemini). Leave blank to disable LLM route.
 GEMINI_API_KEY = os.environ.get("DRUGTRACE_GEMINI_API_KEY", "")
+
+# Serve the session cookie with the Secure flag (enable behind HTTPS).
+SECURE_COOKIES = os.environ.get("DRUGTRACE_SECURE_COOKIES", "0") == "1"
+# Flask debug mode (interactive debugger) is off unless explicitly enabled.
+DEBUG = os.environ.get("DRUGTRACE_DEBUG", "0") == "1"

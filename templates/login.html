@@ -1,37 +1,50 @@
 {% extends "base.html" %}
+{% from "_macros.html" import password_input with context %}
 {% block title %}Sign in &middot; DrugTrace{% endblock %}
+{% block body_class %}auth-page{% endblock %}
 
 {% block content %}
-<div class="auth-wrap">
-  <section class="card auth-card">
+<div class="auth-layout">
+  <section class="auth-intro">
+    <span class="brand-mark brand-mark-lg" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5 3.5 13.5a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7Z"/><path d="m8.5 8.5 7 7"/></svg>
+    </span>
     <h1>DrugTrace</h1>
-    <p class="muted">Medicine batch traceability, recall exposure and ledger integrity.</p>
+    <p class="lead">Medicine batch traceability, recall exposure and an append-only movement ledger.</p>
+    <ul class="feature-list">
+      <li><strong>Ledger integrity</strong> &mdash; movements can&rsquo;t be edited or deleted, by anyone.</li>
+      <li><strong>Recall exposure</strong> &mdash; see which facilities still hold affected stock.</li>
+      <li><strong>Hardened accounts</strong> &mdash; bcrypt-only storage, strict usernames and lockout, enforced inside MySQL.</li>
+    </ul>
+  </section>
 
-    <form method="post" class="stack">
+  <section class="card auth-card">
+    <h2 class="auth-title">Sign in</h2>
+    <p class="muted small">Use your DrugTrace account.</p>
+
+    <form method="post" class="stack" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>
-        Username
-        <input type="text" name="username" value="{{ username }}" autocomplete="username" required autofocus>
-      </label>
-      <label>
-        Password
-        <input type="password" name="password" autocomplete="current-password" required>
-      </label>
-      <button class="btn btn-primary" type="submit">Sign in</button>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" value="{{ username }}" autocomplete="username"
+               autocapitalize="none" spellcheck="false" maxlength="64" required {{ '' if username else 'autofocus' }}>
+      </div>
+      {{ password_input('password', 'password', 'Password', autocomplete='current-password', autofocus=(username != '')) }}
+      <button class="btn btn-primary btn-block" type="submit">Sign in</button>
     </form>
 
-    <div class="demo-box">
-      <p class="eyebrow">Demo accounts</p>
+    <details class="demo-box">
+      <summary>Demo accounts</summary>
       <table class="table compact">
-        <thead><tr><th>Username</th><th>Role</th><th>Password</th></tr></thead>
+        <thead><tr><th>Username</th><th>Role</th></tr></thead>
         <tbody>
-          <tr><td><code>alice.operator</code></td><td>OPERATOR</td><td><code>demo123</code></td></tr>
-          <tr><td><code>rita.recall</code></td><td>RECALL_OFFICER</td><td><code>demo123</code></td></tr>
-          <tr><td><code>victor.viewer</code></td><td>VIEWER</td><td><code>demo123</code></td></tr>
+          <tr><td><code>alice.operator</code></td><td><span class="role role-operator">OPERATOR</span></td></tr>
+          <tr><td><code>rita.recall</code></td><td><span class="role role-recall_officer">RECALL OFFICER</span></td></tr>
+          <tr><td><code>victor.viewer</code></td><td><span class="role role-viewer">VIEWER</span></td></tr>
         </tbody>
       </table>
-      <p class="muted small">Passwords are stored as bcrypt hashes. Role checks are enforced server-side.</p>
-    </div>
+      <p class="muted small">Password for all three: <code>Demo#Trace2026</code>. Change it after signing in.</p>
+    </details>
   </section>
 </div>
 {% endblock %}

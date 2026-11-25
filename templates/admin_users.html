@@ -1,74 +1,97 @@
 {% extends "base.html" %}
-{% block title %}User Management &middot; DrugTrace{% endblock %}
+{% from "_macros.html" import password_input, password_policy, username_input with context %}
+{% block title %}Users &middot; DrugTrace{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <p class="eyebrow">Administration</p>
-    <h1>User Management</h1>
-    <p class="muted">Role-gated account provisioning. Passwords are hashed with bcrypt. All changes are audited.</p>
+    <h1>Users</h1>
+    <p class="muted">Every change is audited. Account rules are enforced by MySQL constraints and triggers, not just this form.</p>
   </div>
 </div>
 
-<div class="two-col">
+<div class="two-col two-col-wide">
   <section class="card">
     <div class="card-head">
-      <h2>Existing Accounts</h2>
+      <h2>Accounts</h2>
       <span class="muted small">{{ users|length }} user{{ '' if users|length == 1 else 's' }}</span>
     </div>
     <div class="table-wrap">
-      <table class="table compact">
+      <table class="table user-table">
         <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Actions</th>
-          </tr>
+          <tr><th>User</th><th>Role</th><th>Last sign-in</th><th>Status</th><th class="actions-col"><span class="sr-only">Actions</span></th></tr>
         </thead>
         <tbody>
           {% for u in users %}
           <tr>
-            <td class="strong mono">{{ u.username }}</td>
             <td>
-              <span class="role role-{{ u.role|lower }}">{{ u.role }}</span>
+              <div class="user-cell">
+                <span class="avatar avatar-sm" aria-hidden="true">{{ u.username[:1]|upper }}</span>
+                <div>
+                  <span class="strong mono">{{ u.username }}</span>{% if u.user_id == g.user['user_id'] %} <span class="muted small">(you)</span>{% endif %}
+                  <br><span class="muted small">created {{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</span>
+                </div>
+              </div>
             </td>
+            <td><span class="role role-{{ u.role|lower }}">{{ u.role|replace('_', ' ') }}</span></td>
+            <td class="small">{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'never' }}</td>
             <td>
-              <details style="display:inline-block; margin-right: 0.5rem;">
-                <summary class="link-button small">Change role</summary>
-                <form method="post" action="{{ url_for('admin_users') }}" style="margin-top: 0.4rem;" class="stack">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="action" value="change_role">
-                  <input type="hidden" name="user_id" value="{{ u.user_id }}">
-                  <select name="role" required style="padding: 0.2rem 0.4rem; font-size: 0.8rem;">
-                    <option value="OPERATOR" {{ 'selected' if u.role == 'OPERATOR' }}>OPERATOR</option>
-                    <option value="RECALL_OFFICER" {{ 'selected' if u.role == 'RECALL_OFFICER' }}>RECALL_OFFICER</option>
-                    <option value="VIEWER" {{ 'selected' if u.role == 'VIEWER' }}>VIEWER</option>
-                  </select>
-                  <button class="btn btn-ghost small" type="submit">Update</button>
-                </form>
-              </details>
-
-              <details style="display:inline-block; margin-right: 0.5rem;">
-                <summary class="link-button small">Reset PW</summary>
-                <form method="post" action="{{ url_for('admin_users') }}" style="margin-top: 0.4rem;" class="stack">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <input type="hidden" name="action" value="reset_password">
-                  <input type="hidden" name="user_id" value="{{ u.user_id }}">
-                  <input type="password" name="password" placeholder="Min 8 chars, 1 digit/symbol" required
-                         minlength="8" pattern=".*[\d\W_].*" title="Minimum 8 characters with at least one digit or symbol"
-                         style="padding: 0.2rem 0.4rem; font-size: 0.8rem; width: 140px;">
-                  <button class="btn btn-ghost small" type="submit">Save</button>
-                </form>
-              </details>
-
-              {% if u.user_id != g.user['user_id'] %}
-              <form method="post" action="{{ url_for('admin_users') }}" style="display:inline;" onsubmit="return confirm('Delete user {{ u.username }}?');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="user_id" value="{{ u.user_id }}">
-                <button class="link-button small" type="submit" style="color: var(--danger);">Delete</button>
-              </form>
+              {% if u.is_locked %}
+                <span class="badge badge-danger" title="Locked until {{ u.locked_until }}">Locked</span>
+              {% elif u.failed_logins %}
+                <span class="badge badge-warn">{{ u.failed_logins }} failed</span>
+              {% else %}
+                <span class="badge badge-ok">Active</span>
               {% endif %}
+            </td>
+            <td class="actions-col">
+              <details class="menu menu-right">
+                <summary class="btn btn-ghost btn-sm" aria-label="Actions for {{ u.username }}">Manage</summary>
+                <div class="menu-panel menu-panel-wide">
+                  <form method="post" action="{{ url_for('admin_users') }}" class="stack-sm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="change_role">
+                    <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                    <label class="field-label" for="role-{{ u.user_id }}">Role</label>
+                    <div class="inline-form">
+                      <select id="role-{{ u.user_id }}" name="role" required>
+                        {% for r in roles %}
+                        <option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ r|replace('_', ' ') }}</option>
+                        {% endfor %}
+                      </select>
+                      <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+                    </div>
+                  </form>
+
+                  <form method="post" action="{{ url_for('admin_users') }}" class="stack-sm" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="reset_password">
+                    <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                    {{ password_input('pw-' ~ u.user_id, 'password', 'Reset password') }}
+                    {{ password_policy('pw-' ~ u.user_id, username=u.username) }}
+                    <button class="btn btn-ghost btn-sm" type="submit">Set new password</button>
+                  </form>
+
+                  {% if u.is_locked or u.failed_logins %}
+                  <form method="post" action="{{ url_for('admin_users') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="unlock">
+                    <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                    <button class="btn btn-ghost btn-sm btn-block" type="submit">Unlock &amp; clear failures</button>
+                  </form>
+                  {% endif %}
+
+                  {% if u.user_id != g.user['user_id'] %}
+                  <form method="post" action="{{ url_for('admin_users') }}" data-confirm="Delete user {{ u.username }}? This cannot be undone.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                    <button class="btn btn-danger-ghost btn-sm btn-block" type="submit">Delete user</button>
+                  </form>
+                  {% endif %}
+                </div>
+              </details>
             </td>
           </tr>
           {% endfor %}
@@ -78,42 +101,37 @@
   </section>
 
   <section class="card">
-    <div class="card-head">
-      <h2>Create New Account</h2>
-    </div>
-    <form method="post" action="{{ url_for('admin_users') }}" class="stack">
+    <div class="card-head"><h2>New account</h2></div>
+    <form method="post" action="{{ url_for('admin_users') }}" class="stack" autocomplete="off">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="create">
 
-      <label>
-        Username
-        <input type="text" name="username" placeholder="e.g. john.smith" required
-               minlength="3" maxlength="30" pattern="^[a-zA-Z0-9_-]{3,30}$"
-               title="3 to 30 characters: letters, numbers, underscores, and hyphens only">
-        <span class="muted small">3&ndash;30 characters: letters, numbers, hyphens, underscores</span>
-      </label>
+      {{ username_input('new-username', 'username', form_values.get('username', '')) }}
+      {{ password_input('new-password', 'password', 'Initial password') }}
+      {{ password_policy('new-password', username_source='#new-username') }}
 
-      <label>
-        Password
-        <input type="password" name="password" required
-               minlength="8" pattern=".*[\d\W_].*"
-               title="Minimum 8 characters with at least one digit or symbol">
-        <span class="muted small">Minimum 8 characters, with at least 1 digit or symbol</span>
-      </label>
-
-      <label>
-        Role
-        <select name="role" required>
-          <option value="OPERATOR">OPERATOR &mdash; record stock movements</option>
-          <option value="RECALL_OFFICER">RECALL_OFFICER &mdash; issue/close recalls &amp; manage users</option>
-          <option value="VIEWER" selected>VIEWER &mdash; read dashboards &amp; ask NL questions</option>
+      <div class="field">
+        <label for="new-role">Role</label>
+        <select id="new-role" name="role" required>
+          {% set chosen = form_values.get('role', 'VIEWER') %}
+          <option value="VIEWER" {{ 'selected' if chosen == 'VIEWER' }}>Viewer &mdash; dashboards &amp; NL questions</option>
+          <option value="OPERATOR" {{ 'selected' if chosen == 'OPERATOR' }}>Operator &mdash; record stock movements</option>
+          <option value="RECALL_OFFICER" {{ 'selected' if chosen == 'RECALL_OFFICER' }}>Recall officer &mdash; recalls &amp; user admin</option>
         </select>
-      </label>
-
-      <div style="margin-top: 0.5rem;">
-        <button class="btn btn-primary" type="submit">Create account</button>
       </div>
+
+      <button class="btn btn-primary" type="submit">Create account</button>
     </form>
   </section>
 </div>
+
+<section class="callout">
+  <h2>Enforced by the database</h2>
+  <ul>
+    <li><code>CHECK</code> constraints accept only lowercase usernames of 3&ndash;30 characters (<code>a-z 0-9 . _ -</code>, starting with a letter) and refuse reserved names.</li>
+    <li>The <code>password_hash</code> column accepts only a bcrypt hash with cost &ge; 12 &mdash; plaintext, MD5/SHA or weak hashes are refused.</li>
+    <li><code>sp_register_login</code> locks an account for 15 minutes after 5 failed sign-ins.</li>
+    <li>Triggers make usernames immutable, stamp password changes (which ends old sessions) and keep at least one recall officer.</li>
+  </ul>
+</section>
 {% endblock %}

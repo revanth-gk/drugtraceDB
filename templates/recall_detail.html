@@ -13,7 +13,7 @@
     <span class="badge badge-class-{{ recall.recall_class|lower }}">Class {{ recall.recall_class }}</span>
     <span class="badge badge-muted">Issued {{ recall.issued_date }}</span>
     {% if g.user and g.user['role'] == 'RECALL_OFFICER' and recall.recall_status == 'ACTIVE' %}
-    <form method="post" action="{{ url_for('close_recall', recall_id=recall.recall_id) }}" style="display:inline;" onsubmit="return confirm('Close this recall?');">
+    <form method="post" action="{{ url_for('close_recall', recall_id=recall.recall_id) }}" class="inline" data-confirm="Close this recall? Transfers of its batches will be allowed again.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-danger small" type="submit">Close recall</button>
     </form>

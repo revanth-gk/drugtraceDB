@@ -11,19 +11,19 @@
 </div>
 
 <section class="stat-grid">
-  <a class="stat" href="{{ url_for('batches') }}" style="color: inherit; text-decoration: none;">
+  <a class="stat" href="{{ url_for('batches') }}">
     <span class="stat-value">{{ "{:,}".format(stats.batches or 0) }}</span>
     <span class="stat-label">Batches tracked</span>
   </a>
-  <a class="stat" href="{{ url_for('recalls') }}" style="color: inherit; text-decoration: none;">
+  <a class="stat stat-danger" href="{{ url_for('recalls') }}">
     <span class="stat-value">{{ stats.active_recalls or 0 }}</span>
     <span class="stat-label">Active recalls</span>
   </a>
-  <a class="stat" href="{{ url_for('recalls') }}" style="color: inherit; text-decoration: none;">
+  <a class="stat stat-warn" href="{{ url_for('recalls') }}">
     <span class="stat-value">{{ stats.exposed_facilities or 0 }}</span>
     <span class="stat-label">Facilities holding recalled stock</span>
   </a>
-  <a class="stat" href="{{ url_for('expiry', days=60) }}" style="color: inherit; text-decoration: none;">
+  <a class="stat stat-info" href="{{ url_for('expiry', days=60) }}">
     <span class="stat-value">{{ stats.expiring_60 or 0 }}</span>
     <span class="stat-label">Batches expiring in 60 days</span>
   </a>
@@ -64,7 +64,7 @@
       <span class="muted small">next 90 days</span>
     </div>
     {% if expiring %}
-    <table class="table compact">
+    <div class="table-wrap"><table class="table compact">
       <thead>
         <tr><th>Batch</th><th>Facility</th><th class="num">Qty</th><th class="num">Days</th></tr>
       </thead>
@@ -78,7 +78,7 @@
         </tr>
         {% endfor %}
       </tbody>
-    </table>
+    </table></div>
     {% else %}
     <p class="empty">Nothing expiring in the next 90 days.</p>
     {% endif %}
@@ -91,7 +91,7 @@
     <a class="text-link" href="{{ url_for('audit') }}">Full audit log &rarr;</a>
   </div>
   {% if recent_audit %}
-  <table class="table compact">
+  <div class="table-wrap"><table class="table compact">
     <thead><tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Entity</th><th>Outcome</th></tr></thead>
     <tbody>
       {% for entry in recent_audit %}
@@ -104,7 +104,7 @@
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% else %}
   <p class="empty">No audit entries yet.</p>
   {% endif %}

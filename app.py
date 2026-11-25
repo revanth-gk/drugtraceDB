@@ -10,13 +10,10 @@ Run:
 
 from __future__ import annotations
 
-import os
-import re
-from datetime import date
+from datetime import date, timedelta
 from functools import wraps
 from typing import Any, Callable
 
-import bcrypt
 import mysql.connector
 from flask import (
     Flask,
@@ -34,17 +31,22 @@ from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
 from pymongo.errors import PyMongoError
 
+import config
 import db
 import logs
+import security
 from db import close_db, ensure_db, get_db, query_all, query_one, query_scalar
 from movements import record_movement
 from nlp import ask as nl_ask
 from recalls import create_recall
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("DRUGTRACE_SECRET", "drugtrace-dev-secret-change-me")
+app.secret_key = config.SECRET_KEY
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Set DRUGTRACE_SECURE_COOKIES=1 when serving over HTTPS.
+app.config["SESSION_COOKIE_SECURE"] = config.SECURE_COOKIES
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 
 csrf = CSRFProtect(app)
 limiter = Limiter(get_remote_address, app=app, default_limits=["200/day"])
@@ -69,12 +71,68 @@ def _teardown(_exc: BaseException | None) -> None:
 
 @app.before_request
 def _load_user() -> None:
+    g.user = None
     user_id = session.get("user_id")
-    g.user = (
-        query_one(get_db(), "SELECT * FROM app_user WHERE user_id = %s", (user_id,))
-        if user_id
-        else None
+    if not user_id:
+        return
+    user = query_one(get_db(), "SELECT * FROM app_user WHERE user_id = %s", (user_id,))
+    # A password change (stamped by a DB trigger) ends every older session.
+    if user is None or session.get("pwd_at") != str(user["password_changed_at"]):
+        session.clear()
+        return
+    g.user = user
+
+
+@app.after_request
+def _security_headers(response: Any) -> Any:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
     )
+    if g.get("user") is not None:
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+@app.context_processor
+def _inject_policy() -> dict[str, Any]:
+    return {
+        "password_rules": security.PASSWORD_RULES,
+        "password_min": security.PASSWORD_MIN,
+        "password_max": security.PASSWORD_MAX,
+        "username_rules": security.USERNAME_RULES,
+        "username_pattern": security.USERNAME_PATTERN,
+        "username_min": security.USERNAME_MIN,
+        "username_max": security.USERNAME_MAX,
+    }
+
+
+def _start_session(user: dict[str, Any]) -> None:
+    session.clear()
+    session.permanent = True
+    session["user_id"] = user["user_id"]
+    session["pwd_at"] = str(user["password_changed_at"])
+
+
+def _db_error_message(exc: mysql.connector.Error) -> str:
+    """Turn a MySQL rejection into a message that is safe to show."""
+    errno = getattr(exc, "errno", None)
+    if errno == 3819:  # ER_CHECK_CONSTRAINT_VIOLATED
+        return f"Rejected by the database ({exc.msg})."
+    if errno == 1062:  # duplicate key
+        return "That value already exists."
+    if errno == 1451:  # FK: row is referenced
+        return (
+            "This account has recorded ledger movements, so it cannot be deleted "
+            "(the ledger keeps who recorded each movement)."
+        )
+    if getattr(exc, "sqlstate", None) == "45000":  # SIGNAL from a trigger
+        return exc.msg
+    return "The database rejected the change."
 
 
 def login_required(view: Callable[..., Any]) -> Callable[..., Any]:
@@ -177,31 +235,36 @@ def _recall_context(form: Any = None, selected: set[int] | None = None) -> dict[
 # --------------------------------------------------------------------------- #
 # Auth routes
 # --------------------------------------------------------------------------- #
+_LOGIN_FAILED_MSG = (
+    "Invalid username or password. After {n} failed attempts an account is "
+    "locked for {m} minutes."
+).format(n=security.MAX_FAILED_LOGINS, m=security.LOCKOUT_MINUTES)
+
+
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("5/minute")
+@limiter.limit("10/minute", methods=["POST"])
 def login() -> Any:
     if g.user is not None:
         return redirect(url_for("overview"))
 
     username = ""
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        user = query_one(get_db(), "SELECT * FROM app_user WHERE username = %s", (username,))
+        username = security.normalize_username(request.form.get("username", ""))[:64]
+        password = request.form.get("password", "")[:256]
+        conn = get_db()
+        user = query_one(conn, "SELECT * FROM app_user WHERE username = %s", (username,))
 
-        valid = False
-        if user is not None:
-            try:
-                valid = bcrypt.checkpw(
-                    password.encode("utf-8"), user["password_hash"].encode("utf-8")
-                )
-            except ValueError:
-                valid = False
+        # Always run bcrypt, even for unknown users, so timing reveals nothing.
+        password_ok = security.verify_password(
+            password, user["password_hash"] if user else None
+        )
+        status = db.register_login(conn, user["user_id"], password_ok) if user else "FAILED"
 
-        if valid:
-            session.clear()
-            session["user_id"] = user["user_id"]
-            flash(f"Signed in as {user['username']} ({user['role']}).", "success")
+        if status == "OK":
+            user = query_one(conn, "SELECT * FROM app_user WHERE user_id = %s", (user["user_id"],))
+            _start_session(user)
+            logs.log_audit(user, "LOGIN", "app_user", user["user_id"], {}, "OK")
+            flash(f"Signed in as {user['username']}.", "success")
             return redirect(url_for("overview"))
 
         logs.log_audit(
@@ -211,9 +274,9 @@ def login() -> Any:
             user["user_id"] if user else None,
             {"username": username},
             "REJECTED",
-            "Invalid username or password",
+            "Account locked" if status == "LOCKED" else "Invalid username or password",
         )
-        flash("Invalid username or password.", "error")
+        flash(_LOGIN_FAILED_MSG, "error")
 
     return render_template("login.html", username=username)
 
@@ -226,83 +289,184 @@ def logout() -> Any:
     return redirect(url_for("login"))
 
 
-_SQL_KEYWORDS = {"SELECT", "DROP", "INSERT", "DELETE", "UPDATE", "ALTER", "UNION", "OR", "AND", "EXEC", "TRUNCATE"}
+@app.route("/account/password", methods=["GET", "POST"])
+@login_required
+@limiter.limit("10/minute", methods=["POST"])
+def account_password() -> Any:
+    if request.method == "POST":
+        current = request.form.get("current_password", "")
+        new = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        errors: list[str] = []
+        if not security.verify_password(current, g.user["password_hash"]):
+            errors.append("Current password is incorrect.")
+        if new != confirm:
+            errors.append("The new passwords do not match.")
+        if new and new == current:
+            errors.append("The new password must differ from the current one.")
+        errors += security.validate_password(new, g.user["username"])
+
+        if errors:
+            logs.log_audit(
+                g.user, "PASSWORD_CHANGE", "app_user", g.user["user_id"], {},
+                "REJECTED", errors[0],
+            )
+            for message in errors:
+                flash(message, "error")
+            return render_template("account_password.html"), 400
+
+        conn = get_db()
+        db.execute(
+            conn,
+            "UPDATE app_user SET password_hash = %s WHERE user_id = %s",
+            (security.hash_password(new), g.user["user_id"]),
+        )
+        # The trigger bumped password_changed_at; refresh this session so only
+        # *other* sessions are signed out.
+        user = query_one(conn, "SELECT * FROM app_user WHERE user_id = %s", (g.user["user_id"],))
+        _start_session(user)
+        logs.log_audit(user, "PASSWORD_CHANGE", "app_user", user["user_id"], {}, "OK")
+        flash("Password changed. Other signed-in sessions have been ended.", "success")
+        return redirect(url_for("overview"))
+
+    return render_template("account_password.html")
+
+
+_ROLES = ("OPERATOR", "RECALL_OFFICER", "VIEWER")
 
 
 @app.route("/admin/users", methods=["GET", "POST"])
 @roles_required("RECALL_OFFICER")
 def admin_users() -> Any:
     conn = get_db()
+    form_values: dict[str, str] = {}
     if request.method == "POST":
         action = request.form.get("action", "").strip()
-        if action == "create":
-            new_username = request.form.get("username", "").strip()
-            new_password = request.form.get("password", "")
-            new_role = request.form.get("role", "").strip().upper()
+        target_raw = request.form.get("user_id", "").strip()
+        target_id = int(target_raw) if target_raw.isdigit() else None
+        target = (
+            query_one(conn, "SELECT user_id, username FROM app_user WHERE user_id = %s", (target_id,))
+            if target_id is not None
+            else None
+        )
+        if action != "create" and target is None:
+            flash("Unknown user.", "error")
+            return redirect(url_for("admin_users"))
 
-            if not re.match(r"^[a-zA-Z0-9_-]{3,30}$", new_username):
-                flash("Username must be 3-30 alphanumeric characters, hyphens or underscores.", "error")
-                return redirect(url_for("admin_users"))
-            if any(kw in new_username.upper().split() or kw == new_username.upper() for kw in _SQL_KEYWORDS):
-                flash("Username contains reserved keywords.", "error")
-                return redirect(url_for("admin_users"))
-            if len(new_password) < 8 or not re.search(r"[\d\W_]", new_password):
-                flash("Password must be at least 8 characters with at least one digit or symbol.", "error")
-                return redirect(url_for("admin_users"))
-            if new_role not in ("OPERATOR", "RECALL_OFFICER", "VIEWER"):
-                flash("Invalid role specified.", "error")
+        try:
+            if action == "create":
+                new_username = security.normalize_username(request.form.get("username", ""))
+                new_password = request.form.get("password", "")
+                new_role = request.form.get("role", "").strip().upper()
+                form_values = {"username": new_username, "role": new_role}
+
+                errors = security.validate_username(new_username)
+                errors += security.validate_password(new_password, new_username)
+                if new_role not in _ROLES:
+                    errors.append("Invalid role.")
+                if not errors and query_one(
+                    conn, "SELECT 1 FROM app_user WHERE username = %s", (new_username,)
+                ):
+                    errors.append(f"User '{new_username}' already exists.")
+                if errors:
+                    for message in errors:
+                        flash(message, "error")
+                    logs.log_audit(
+                        g.user, "USER_CREATED", "app_user", None,
+                        {"username": new_username, "role": new_role}, "REJECTED", errors[0],
+                    )
+                else:
+                    user_id = db.execute(
+                        conn,
+                        "INSERT INTO app_user (username, password_hash, role) VALUES (%s, %s, %s)",
+                        (new_username, security.hash_password(new_password), new_role),
+                    )
+                    logs.log_audit(
+                        g.user, "USER_CREATED", "app_user", user_id,
+                        {"username": new_username, "role": new_role}, "OK",
+                    )
+                    flash(f"User '{new_username}' created as {new_role}.", "success")
+                    return redirect(url_for("admin_users"))
+
+            elif action == "change_role":
+                new_role = request.form.get("role", "").strip().upper()
+                if new_role not in _ROLES:
+                    flash("Invalid role.", "error")
+                else:
+                    db.execute(
+                        conn, "UPDATE app_user SET role = %s WHERE user_id = %s",
+                        (new_role, target_id),
+                    )
+                    logs.log_audit(
+                        g.user, "USER_ROLE_CHANGED", "app_user", target_id,
+                        {"new_role": new_role}, "OK",
+                    )
+                    flash(f"{target['username']} is now {new_role}.", "success")
                 return redirect(url_for("admin_users"))
 
-            existing = query_one(conn, "SELECT 1 FROM app_user WHERE username = %s", (new_username,))
-            if existing:
-                flash(f"User '{new_username}' already exists.", "error")
+            elif action == "reset_password":
+                new_password = request.form.get("password", "")
+                errors = security.validate_password(new_password, target["username"])
+                if errors:
+                    for message in errors:
+                        flash(message, "error")
+                else:
+                    db.execute(
+                        conn, "UPDATE app_user SET password_hash = %s WHERE user_id = %s",
+                        (security.hash_password(new_password), target_id),
+                    )
+                    logs.log_audit(g.user, "USER_PASSWORD_RESET", "app_user", target_id, {}, "OK")
+                    flash(
+                        f"Password for {target['username']} reset; their sessions were ended.",
+                        "success",
+                    )
                 return redirect(url_for("admin_users"))
 
-            pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-            user_id = db.execute(
-                conn,
-                "INSERT INTO app_user (username, password_hash, role) VALUES (%s, %s, %s)",
-                (new_username, pw_hash, new_role),
+            elif action == "unlock":
+                db.execute(
+                    conn,
+                    "UPDATE app_user SET failed_logins = 0, locked_until = NULL WHERE user_id = %s",
+                    (target_id,),
+                )
+                logs.log_audit(g.user, "USER_UNLOCKED", "app_user", target_id, {}, "OK")
+                flash(f"{target['username']} unlocked.", "success")
+                return redirect(url_for("admin_users"))
+
+            elif action == "delete":
+                if target_id == g.user["user_id"]:
+                    flash("You cannot delete your own account.", "error")
+                else:
+                    db.execute(conn, "DELETE FROM app_user WHERE user_id = %s", (target_id,))
+                    logs.log_audit(
+                        g.user, "USER_DELETED", "app_user", target_id,
+                        {"username": target["username"]}, "OK",
+                    )
+                    flash(f"User {target['username']} deleted.", "info")
+                return redirect(url_for("admin_users"))
+
+            else:
+                flash("Unknown action.", "error")
+                return redirect(url_for("admin_users"))
+
+        except mysql.connector.Error as exc:
+            message = _db_error_message(exc)
+            logs.log_audit(
+                g.user, f"USER_{action.upper()}", "app_user", target_id, {}, "REJECTED", message
             )
-            logs.log_audit(g.user, "USER_CREATED", "app_user", user_id, {"username": new_username, "role": new_role}, "OK")
-            flash(f"User '{new_username}' created as {new_role}.", "success")
+            flash(message, "error")
             return redirect(url_for("admin_users"))
 
-        elif action == "change_role":
-            target_id = request.form.get("user_id", "").strip()
-            new_role = request.form.get("role", "").strip().upper()
-            if new_role not in ("OPERATOR", "RECALL_OFFICER", "VIEWER"):
-                flash("Invalid role.", "error")
-                return redirect(url_for("admin_users"))
-            db.execute(conn, "UPDATE app_user SET role = %s WHERE user_id = %s", (new_role, target_id))
-            logs.log_audit(g.user, "USER_ROLE_CHANGED", "app_user", int(target_id), {"new_role": new_role}, "OK")
-            flash(f"Role updated to {new_role}.", "success")
-            return redirect(url_for("admin_users"))
-
-        elif action == "reset_password":
-            target_id = request.form.get("user_id", "").strip()
-            new_password = request.form.get("password", "")
-            if len(new_password) < 8 or not re.search(r"[\d\W_]", new_password):
-                flash("Password must be at least 8 characters with at least one digit or symbol.", "error")
-                return redirect(url_for("admin_users"))
-            pw_hash = bcrypt.hashpw(new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-            db.execute(conn, "UPDATE app_user SET password_hash = %s WHERE user_id = %s", (pw_hash, target_id))
-            logs.log_audit(g.user, "USER_PASSWORD_RESET", "app_user", int(target_id), {}, "OK")
-            flash("Password reset successfully.", "success")
-            return redirect(url_for("admin_users"))
-
-        elif action == "delete":
-            target_id = request.form.get("user_id", "").strip()
-            if str(g.user["user_id"]) == target_id:
-                flash("Cannot delete your own account.", "error")
-                return redirect(url_for("admin_users"))
-            db.execute(conn, "DELETE FROM app_user WHERE user_id = %s", (target_id,))
-            logs.log_audit(g.user, "USER_DELETED", "app_user", int(target_id), {}, "OK")
-            flash("User deleted.", "info")
-            return redirect(url_for("admin_users"))
-
-    users = query_all(conn, "SELECT user_id, username, role FROM app_user ORDER BY username")
-    return render_template("admin_users.html", users=users)
+    users = query_all(
+        conn,
+        """
+        SELECT user_id, username, role, created_at, last_login_at, password_changed_at,
+               failed_logins, locked_until,
+               (locked_until IS NOT NULL AND locked_until > NOW()) AS is_locked
+        FROM app_user ORDER BY username
+        """,
+    )
+    return render_template("admin_users.html", users=users, form_values=form_values, roles=_ROLES)
 
 
 # --------------------------------------------------------------------------- #
@@ -838,4 +1002,4 @@ def not_found(_error: Any) -> Any:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=config.DEBUG)
