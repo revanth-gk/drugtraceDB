@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Recalls &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Recall Investigation</p>
+    <h1>Recalls</h1>
+    <p class="muted">Exposure is computed live from the ledger, per facility and district.</p>
+  </div>
+  {% if g.user['role'] == 'RECALL_OFFICER' %}
+  <div class="page-actions">
+    <a class="btn btn-primary" href="{{ url_for('recall_new') }}">New recall</a>
+  </div>
+  {% endif %}
+</div>
+
+<section class="card">
+  {% if recalls %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Recall</th><th>Status</th><th>Class</th><th>Issued</th>
+          <th>Reason</th><th class="num">Batches</th><th class="num">Units exposed</th><th class="num">Facilities</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for recall in recalls %}
+        <tr>
+          <td><a class="mono strong" href="{{ url_for('recall_detail', recall_id=recall.recall_id) }}">{{ recall.recall_code }}</a></td>
+          <td><span class="badge {{ 'badge-active' if recall.recall_status == 'ACTIVE' else 'badge-muted' }}">{{ recall.recall_status }}</span></td>
+          <td><span class="badge badge-class-{{ recall.recall_class|lower }}">Class {{ recall.recall_class }}</span></td>
+          <td class="mono">{{ recall.issued_date }}</td>
+          <td>{{ recall.reason }}</td>
+          <td class="num">{{ recall.batch_count }}</td>
+          <td class="num">{{ "{:,}".format(recall.exposed_units) }}</td>
+          <td class="num">{{ recall.facility_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No recalls yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

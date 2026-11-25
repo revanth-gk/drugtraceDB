@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}New recall &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a class="text-link" href="{{ url_for('recalls') }}">&larr; Recalls</a></p>
+    <h1>Issue a recall</h1>
+    <p class="muted">Creates the recall row, the affected-batch junction rows and a free-form notice document.</p>
+  </div>
+</div>
+
+<form method="post" class="stack-lg">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <section class="card">
+    <div class="card-head"><h2>Recall details</h2></div>
+    <div class="form-grid">
+      <label>
+        Recall code
+        <input type="text" name="recall_code" value="{{ form.get('recall_code', suggested_code) }}" required>
+      </label>
+      <label>
+        Issued date
+        <input type="date" name="issued_date" value="{{ form.get('issued_date', today) }}" max="{{ today }}" required>
+      </label>
+      <label>
+        Recall class
+        <select name="recall_class" required>
+          {% set chosen_class = form.get('recall_class', 'II') %}
+          <option value="I" {{ 'selected' if chosen_class == 'I' }}>I &mdash; serious harm</option>
+          <option value="II" {{ 'selected' if chosen_class == 'II' }}>II &mdash; temporary harm</option>
+          <option value="III" {{ 'selected' if chosen_class == 'III' }}>III &mdash; unlikely harm</option>
+        </select>
+      </label>
+      <label>
+        Status
+        <select name="recall_status" required>
+          {% set chosen_status = form.get('recall_status', 'ACTIVE') %}
+          <option value="ACTIVE" {{ 'selected' if chosen_status == 'ACTIVE' }}>ACTIVE</option>
+          <option value="CLOSED" {{ 'selected' if chosen_status == 'CLOSED' }}>CLOSED</option>
+        </select>
+      </label>
+      <label class="span-2">
+        Reason
+        <input type="text" name="reason" value="{{ form.get('reason', '') }}" maxlength="255"
+               placeholder="e.g. Dissolution failure in retained samples" required>
+      </label>
+      <label class="span-2">
+        Advisory text (stored in the Mongo-shaped notice document)
+        <textarea name="advisory_text" rows="3" placeholder="Instructions for facilities holding the affected batches">{{ form.get('advisory_text', '') }}</textarea>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Affected batches</h2>
+      <span class="muted small">select one or more</span>
+    </div>
+    <div class="batch-picker">
+      <table class="table compact">
+        <thead><tr><th></th><th>Batch</th><th>Product</th><th>Expiry</th><th class="num">In stock</th></tr></thead>
+        <tbody>
+          {% for batch in batches %}
+          <tr>
+            <td class="checkcell">
+              <input type="checkbox" name="batch_ids" value="{{ batch.batch_id }}"
+                     {{ 'checked' if batch.batch_id in selected }} aria-label="Select {{ batch.batch_no }}">
+            </td>
+            <td class="mono strong">{{ batch.batch_no }}</td>
+            <td>{{ batch.brand_name }}<br><span class="muted small">{{ batch.strength }}</span></td>
+            <td class="mono">{{ batch.expiry_date }}</td>
+            <td class="num">{{ "{:,}".format(batch.total_stock) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">Create recall</button>
+    <a class="btn btn-ghost" href="{{ url_for('recalls') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

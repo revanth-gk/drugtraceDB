@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Overview &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Dashboard</p>
+    <h1>Supply-chain overview</h1>
+    <p class="muted">Stock is derived from the movement ledger; there is no stored balance table.</p>
+  </div>
+</div>
+
+<section class="stat-grid">
+  <a class="stat" href="{{ url_for('batches') }}" style="color: inherit; text-decoration: none;">
+    <span class="stat-value">{{ "{:,}".format(stats.batches or 0) }}</span>
+    <span class="stat-label">Batches tracked</span>
+  </a>
+  <a class="stat" href="{{ url_for('recalls') }}" style="color: inherit; text-decoration: none;">
+    <span class="stat-value">{{ stats.active_recalls or 0 }}</span>
+    <span class="stat-label">Active recalls</span>
+  </a>
+  <a class="stat" href="{{ url_for('recalls') }}" style="color: inherit; text-decoration: none;">
+    <span class="stat-value">{{ stats.exposed_facilities or 0 }}</span>
+    <span class="stat-label">Facilities holding recalled stock</span>
+  </a>
+  <a class="stat" href="{{ url_for('expiry', days=60) }}" style="color: inherit; text-decoration: none;">
+    <span class="stat-value">{{ stats.expiring_60 or 0 }}</span>
+    <span class="stat-label">Batches expiring in 60 days</span>
+  </a>
+</section>
+
+<div class="two-col">
+  <section class="card">
+    <div class="card-head">
+      <h2>Active recalls</h2>
+      <a class="text-link" href="{{ url_for('recalls') }}">All recalls &rarr;</a>
+    </div>
+    {% if active_recalls %}
+    <div class="recall-list">
+      {% for recall in active_recalls %}
+      <a class="recall-item" href="{{ url_for('recall_detail', recall_id=recall.recall_id) }}">
+        <div class="recall-main">
+          <span class="mono strong">{{ recall.recall_code }}</span>
+          <span class="badge badge-active">ACTIVE</span>
+          <span class="badge badge-class-{{ recall.recall_class|lower }}">Class {{ recall.recall_class }}</span>
+        </div>
+        <p class="recall-reason">{{ recall.reason }}</p>
+        <p class="muted small">
+          {{ recall.batch_count }} batch{{ '' if recall.batch_count == 1 else 'es' }} &middot;
+          {{ "{:,}".format(recall.exposed_units) }} units still exposed &middot;
+          issued {{ recall.issued_date }}
+        </p>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">No active recalls.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Expiry watch</h2>
+      <span class="muted small">next 90 days</span>
+    </div>
+    {% if expiring %}
+    <table class="table compact">
+      <thead>
+        <tr><th>Batch</th><th>Facility</th><th class="num">Qty</th><th class="num">Days</th></tr>
+      </thead>
+      <tbody>
+        {% for row in expiring %}
+        <tr>
+          <td><span class="mono">{{ row.batch_no }}</span><br><span class="muted small">{{ row.brand_name }}</span></td>
+          <td>{{ row.facility_name }}<br><span class="muted small">{{ row.district }}</span></td>
+          <td class="num">{{ "{:,}".format(row.qty) }}</td>
+          <td class="num"><span class="badge {{ 'badge-danger' if row.days_left <= 30 else 'badge-warn' }}">{{ row.days_left }}d</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Nothing expiring in the next 90 days.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Recent audit activity</h2>
+    <a class="text-link" href="{{ url_for('audit') }}">Full audit log &rarr;</a>
+  </div>
+  {% if recent_audit %}
+  <table class="table compact">
+    <thead><tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Entity</th><th>Outcome</th></tr></thead>
+    <tbody>
+      {% for entry in recent_audit %}
+      <tr>
+        <td class="mono small">{{ entry.ts }}</td>
+        <td>{{ entry.username or 'system' }}<br><span class="muted small">{{ entry.role or 'SEED' }}</span></td>
+        <td class="mono">{{ entry.action }}</td>
+        <td>{{ entry.entity }}{% if entry.entity_id %} #{{ entry.entity_id }}{% endif %}</td>
+        <td><span class="badge {{ 'badge-ok' if entry.outcome == 'OK' else 'badge-danger' }}">{{ entry.outcome }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No audit entries yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Record movement &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Operator console</p>
+    <h1>Record a movement</h1>
+    <p class="muted">One procedure-like path for all five event types. Invalid attempts are rejected and audited.</p>
+  </div>
+</div>
+
+{% set selected_type = form.get('movement_type', 'TRANSFER') %}
+{% set selected_batch = form.get('batch_id', '')|string %}
+{% set selected_from = form.get('from_facility_id', '')|string %}
+{% set selected_to = form.get('to_facility_id', '')|string %}
+
+<form method="post" class="stack-lg">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <section class="card">
+    <div class="card-head"><h2>Movement details</h2></div>
+    <div class="form-grid">
+      <label>
+        Movement type
+        <select name="movement_type" id="movement_type" required>
+          {% for value in ['INITIAL_RECEIPT', 'TRANSFER', 'RETURN', 'DAMAGE', 'EXPIRY'] %}
+          <option value="{{ value }}" {{ 'selected' if selected_type == value }}>{{ value|replace('_', ' ') }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Batch
+        <select name="batch_id" required>
+          <option value="">Select a batch...</option>
+          {% for batch in batches %}
+          <option value="{{ batch.batch_id }}" {{ 'selected' if selected_batch == batch.batch_id|string }}>
+            {{ batch.batch_no }} &middot; {{ batch.brand_name }} ({{ batch.strength }}; {{ batch.total_stock }} in stock)
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        From facility
+        <select name="from_facility_id" id="from_facility_id">
+          <option value="">None (initial receipt)</option>
+          {% for facility in facilities %}
+          <option value="{{ facility.facility_id }}" {{ 'selected' if selected_from == facility.facility_id|string }}>
+            {{ facility.facility_name }} &middot; {{ facility.district }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        To facility
+        <select name="to_facility_id" id="to_facility_id">
+          <option value="">None (damage / expiry)</option>
+          {% for facility in facilities %}
+          <option value="{{ facility.facility_id }}" {{ 'selected' if selected_to == facility.facility_id|string }}>
+            {{ facility.facility_name }} &middot; {{ facility.district }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Quantity
+        <input type="number" name="quantity" min="1" step="1" value="{{ form.get('quantity', '') }}" required>
+      </label>
+      <label>
+        Movement date
+        <input type="date" name="movement_date" value="{{ form.get('movement_date', today) }}" max="{{ today }}" required>
+      </label>
+      <label>
+        Reference number
+        <input type="text" name="reference_no" value="{{ form.get('reference_no', suggested_reference) }}" maxlength="40" required>
+      </label>
+    </div>
+  </section>
+
+  <section class="callout">
+    <h2>Rules enforced in the transaction</h2>
+    <ul>
+      <li><strong>INITIAL_RECEIPT:</strong> destination only (no source).</li>
+      <li><strong>TRANSFER / RETURN:</strong> source and destination, and they must differ.</li>
+      <li><strong>DAMAGE / EXPIRY:</strong> source only (stock leaves the network).</li>
+      <li>No future dates; no receiving or transferring an expired batch.</li>
+      <li>Transfers of a batch under an ACTIVE recall are blocked; returns and damage are still allowed.</li>
+      <li>The source must hold enough stock. The ledger is append-only: corrections are new reversing movements.</li>
+    </ul>
+  </section>
+
+  <div class="form-actions">
+    <button class="btn btn-primary" type="submit">Record movement</button>
+    <a class="btn btn-ghost" href="{{ url_for('batches') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Small usability aid only; the server is the source of truth.
+  const rules = {
+    INITIAL_RECEIPT: { from: false, to: true },
+    TRANSFER:         { from: true,  to: true },
+    RETURN:           { from: true,  to: true },
+    DAMAGE:           { from: true,  to: false },
+    EXPIRY:           { from: true,  to: false },
+  };
+  function applyPattern() {
+    const type = document.getElementById('movement_type').value;
+    const rule = rules[type];
+    document.getElementById('from_facility_id').disabled = !rule.from;
+    document.getElementById('to_facility_id').disabled = !rule.to;
+  }
+  document.getElementById('movement_type').addEventListener('change', applyPattern);
+  applyPattern();
+</script>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}{{ recall.recall_code }} &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a class="text-link" href="{{ url_for('recalls') }}">&larr; Recalls</a></p>
+    <h1><span class="mono">{{ recall.recall_code }}</span></h1>
+    <p class="muted">{{ recall.reason }}</p>
+  </div>
+  <div class="page-actions">
+    <span class="badge {{ 'badge-active' if recall.recall_status == 'ACTIVE' else 'badge-muted' }}">{{ recall.recall_status }}</span>
+    <span class="badge badge-class-{{ recall.recall_class|lower }}">Class {{ recall.recall_class }}</span>
+    <span class="badge badge-muted">Issued {{ recall.issued_date }}</span>
+    {% if g.user and g.user['role'] == 'RECALL_OFFICER' and recall.recall_status == 'ACTIVE' %}
+    <form method="post" action="{{ url_for('close_recall', recall_id=recall.recall_id) }}" style="display:inline;" onsubmit="return confirm('Close this recall?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-danger small" type="submit">Close recall</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<section class="stat-grid stat-grid-3">
+  <div class="stat">
+    <span class="stat-value">{{ affected_batches|length }}</span>
+    <span class="stat-label">Affected batches</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ district_summary|length }}</span>
+    <span class="stat-label">Districts exposed</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(total_exposed) }}</span>
+    <span class="stat-label">Units still held</span>
+  </div>
+</section>
+
+<div class="two-col">
+  <section class="card">
+    <div class="card-head"><h2>Affected batches</h2></div>
+    <table class="table compact">
+      <thead><tr><th>Batch</th><th>Product</th><th class="num">In stock</th></tr></thead>
+      <tbody>
+        {% for batch in affected_batches %}
+        <tr>
+          <td><a class="mono strong" href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">{{ batch.batch_no }}</a></td>
+          <td>{{ batch.brand_name }}<br><span class="muted small">{{ batch.strength }} &middot; exp {{ batch.expiry_date }}</span></td>
+          <td class="num">{{ "{:,}".format(batch.total_stock) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Exposure by district</h2>
+      <span class="muted small">v_recall_exposure</span>
+    </div>
+    {% if district_summary %}
+    <table class="table compact">
+      <thead><tr><th>District</th><th class="num">Facilities</th><th class="num">Units</th></tr></thead>
+      <tbody>
+        {% for summary in district_summary %}
+        <tr>
+          <td>{{ summary.district }}</td>
+          <td class="num">{{ summary.facilities }}</td>
+          <td class="num">{{ "{:,}".format(summary.units) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No stock from this recall remains in the network.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Facilities still holding affected stock</h2>
+    <span class="muted small">{{ exposure|length }} facility/batch row{{ '' if exposure|length == 1 else 's' }}</span>
+  </div>
+  {% if exposure %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr><th>Facility</th><th>District</th><th>Product</th><th>Batch</th><th class="num">Quantity</th></tr>
+      </thead>
+      <tbody>
+        {% for row in exposure %}
+        <tr>
+          <td>{{ row.facility_name }}</td>
+          <td>{{ row.district }}</td>
+          <td>{{ row.brand_name }}</td>
+          <td class="mono"><a href="{{ url_for('batch_detail', batch_id=row.batch_id) }}">{{ row.batch_no }}</a></td>
+          <td class="num strong">{{ "{:,}".format(row.qty) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No remaining stock for this recall.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Recall notice</h2>
+    <span class="muted small">MongoDB-shaped document (JSONL in this prototype)</span>
+  </div>
+  {% if notice %}
+  <pre class="json">{{ notice|tojson(indent=2) }}</pre>
+  {% else %}
+  <p class="empty">No free-form notice document stored for this recall.</p>
+  {% endif %}
+</section>
+{% endblock %}

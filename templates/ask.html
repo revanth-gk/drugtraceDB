@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Ask the Database – DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Ask the Database</h1>
+  <p class="muted">Natural language → SQL. Only read-only views are queried. Generated SQL is always shown.</p>
+</div>
+
+<div class="ask-panel card">
+  <form method="post" action="{{ url_for('ask') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="ask-row">
+      <input
+        class="ask-input"
+        type="text"
+        name="question"
+        value="{{ question | e }}"
+        placeholder="e.g. Which facilities hold stock affected by recall R-02?"
+        autocomplete="off"
+        autofocus
+        required
+      >
+      <button class="btn btn-primary" type="submit">Ask</button>
+    </div>
+  </form>
+
+  <details class="examples-block">
+    <summary>Supported question examples</summary>
+    <ul class="examples-list">
+      {% for ex in examples %}
+      <li>
+        <form method="post" action="{{ url_for('ask') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="link-button example-btn" type="submit" name="question" value="{{ ex | e }}">{{ ex }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+
+  <details class="examples-block" style="margin-top: 0.5rem;">
+    <summary style="color: var(--danger);">Security demo &mdash; rejected queries</summary>
+    <ul class="examples-list">
+      <li>
+        <form method="post" action="{{ url_for('ask') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="link-button example-btn" type="submit" name="question" value="DELETE FROM stock_movement WHERE movement_id = 1">
+            <code>DELETE FROM stock_movement WHERE movement_id = 1</code>
+          </button>
+        </form>
+      </li>
+      <li>
+        <form method="post" action="{{ url_for('ask') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="link-button example-btn" type="submit" name="question" value="DROP TABLE medicine_batch">
+            <code>DROP TABLE medicine_batch</code>
+          </button>
+        </form>
+      </li>
+      <li>
+        <form method="post" action="{{ url_for('ask') }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="link-button example-btn" type="submit" name="question" value="SELECT * FROM app_user">
+            <code>SELECT * FROM app_user</code>
+          </button>
+        </form>
+      </li>
+    </ul>
+  </details>
+</div>
+
+{% if result %}
+<div class="ask-result card">
+
+  {# Route badge #}
+  <div class="result-meta">
+    <span class="route-badge route-{{ result.route | lower }}">{{ result.route }}</span>
+    {% if result.intent %}
+    <span class="intent-badge">intent: {{ result.intent }}</span>
+    {% endif %}
+    <span class="muted">{{ result.latency_ms }} ms</span>
+    {% if result.row_count %}
+    <span class="muted">· {{ result.row_count }} row{% if result.row_count != 1 %}s{% endif %}</span>
+    {% endif %}
+  </div>
+
+  {# Error #}
+  {% if result.error %}
+  <div class="flash flash-error ask-error">
+    <strong>Rejected / Error:</strong> {{ result.error }}
+  </div>
+  {% endif %}
+
+  {# SQL panel #}
+  {% if result.sql %}
+  <details class="sql-panel" {% if result.route == 'LLM' %}open{% endif %}>
+    <summary>Generated SQL <span class="muted">(click to {{ 'collapse' if result.route == 'LLM' else 'expand' }})</span></summary>
+    <pre class="sql-code"><code>{{ result.sql | e }}</code></pre>
+  </details>
+  {% endif %}
+
+  {# Results table #}
+  {% if result.rows %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          {% for col in result.columns %}
+          <th>{{ col }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in result.rows %}
+        <tr>
+          {% for col in result.columns %}
+          <td>{{ row[col] if row[col] is not none else '—' }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif not result.error %}
+  <p class="muted">No rows returned.</p>
+  {% endif %}
+
+</div>
+{% endif %}
+
+{# Recent NL query log #}
+{% if nl_queries %}
+<section class="nl-log-section">
+  <h2>Recent queries (this session)</h2>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Question</th>
+          <th>Route</th>
+          <th>Intent</th>
+          <th>Validation</th>
+          <th>Rows</th>
+          <th>ms</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in nl_queries %}
+        <tr>
+          <td class="mono">{{ q.ts }}</td>
+          <td>{{ q.question }}</td>
+          <td><span class="route-badge route-{{ q.route | lower }}">{{ q.route }}</span></td>
+          <td>{{ q.intent or '—' }}</td>
+          <td class="{{ 'text-ok' if q.validation == 'PASSED' else 'text-err' }}">{{ q.validation }}</td>
+          <td>{{ q.row_count }}</td>
+          <td>{{ q.latency_ms }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .ask-panel { margin-bottom: 1.5rem; }
+  .ask-row { display: flex; gap: .5rem; }
+  .ask-input { flex: 1; padding: .5rem .75rem; font-size: 1rem; border: 1px solid var(--border); border-radius: 4px; }
+  .examples-block { margin-top: .75rem; color: var(--text-muted); font-size: .9rem; }
+  .examples-block summary { cursor: pointer; }
+  .examples-list { margin: .5rem 0 0 1rem; list-style: disc; }
+  .example-btn { font-size: .88rem; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; text-align: left; }
+  .example-btn:hover { text-decoration: underline; }
+
+  .ask-result { margin-bottom: 1.5rem; }
+  .result-meta { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem; flex-wrap: wrap; }
+  .route-badge { display: inline-block; padding: .15rem .5rem; border-radius: 3px; font-size: .8rem; font-weight: 600; text-transform: uppercase; }
+  .route-template { background: #d1fae5; color: #065f46; }
+  .route-llm      { background: #dbeafe; color: #1e40af; }
+  .route-rejected { background: #fee2e2; color: #991b1b; }
+  .intent-badge { font-size: .8rem; background: #f3f4f6; border-radius: 3px; padding: .15rem .4rem; }
+
+  .ask-error { margin-bottom: .75rem; }
+
+  .sql-panel { margin-bottom: 1rem; }
+  .sql-panel summary { cursor: pointer; font-weight: 500; color: var(--text-muted); font-size: .9rem; }
+  .sql-code { background: #1e1e1e; color: #d4d4d4; padding: .75rem 1rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; white-space: pre; margin-top: .5rem; }
+
+  .nl-log-section { margin-top: 2rem; }
+  .text-ok  { color: #065f46; }
+  .text-err { color: #991b1b; }
+  .mono { font-family: monospace; font-size: .8rem; white-space: nowrap; }
+</style>
+{% endblock %}

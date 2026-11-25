@@ -1,0 +1,22 @@
+[
+  {"question": "Show the movement history of batch B-104", "expected_route": "TEMPLATE"},
+  {"question": "Where did batch B-104 travel?", "expected_route": "TEMPLATE"},
+  {"question": "Trace batch B-104 journey", "expected_route": "TEMPLATE"},
+  {"question": "Which facilities currently hold batch B-104?", "expected_route": "TEMPLATE"},
+  {"question": "Who holds stock of batch B-104?", "expected_route": "TEMPLATE"},
+  {"question": "Which facilities hold stock affected by recall R-02?", "expected_route": "TEMPLATE"},
+  {"question": "Recall R-02 exposure by facility", "expected_route": "TEMPLATE"},
+  {"question": "How much stock from recall R-02 remains in each district?", "expected_route": "TEMPLATE"},
+  {"question": "Recall R-02 units per district", "expected_route": "TEMPLATE"},
+  {"question": "Which batches expire within 60 days?", "expected_route": "TEMPLATE"},
+  {"question": "Batches expiring in 30 days", "expected_route": "TEMPLATE"},
+  {"question": "Which batches are expiring soon?", "expected_route": "TEMPLATE"},
+  {"question": "Show all batches of Paracetamol 650", "expected_route": "TEMPLATE"},
+  {"question": "Which facility received the most of batch B-104?", "expected_route": "TEMPLATE"},
+  {"question": "Show all movements for City Pharmacy", "expected_route": "TEMPLATE"},
+  {"question": "DELETE FROM stock_movement WHERE movement_id = 1", "expected_route": "REJECTED"},
+  {"question": "DROP TABLE medicine_batch", "expected_route": "REJECTED"},
+  {"question": "UPDATE stock_movement SET quantity = 100", "expected_route": "REJECTED"},
+  {"question": "SELECT * FROM app_user", "expected_route": "REJECTED"},
+  {"question": "SELECT * FROM v_current_stock; DROP TABLE facility;", "expected_route": "REJECTED"}
+]

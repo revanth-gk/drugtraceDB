@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Audit log &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Security &amp; observability</p>
+    <h1>Audit log</h1>
+    <p class="muted">Append-only documents. Accepted and rejected writes are both recorded.</p>
+  </div>
+</div>
+
+<div class="two-col two-col-wide">
+  <section class="card">
+    <div class="card-head">
+      <h2>Filter</h2>
+      <span class="muted small">{{ entries|length }} shown</span>
+    </div>
+    <div class="filter-row">
+      <a class="chip {{ 'chip-active' if not outcome }}" href="{{ url_for('audit') }}">All</a>
+      <a class="chip {{ 'chip-active' if outcome == 'OK' }}" href="{{ url_for('audit', outcome='OK') }}">OK</a>
+      <a class="chip {{ 'chip-active' if outcome == 'REJECTED' }}" href="{{ url_for('audit', outcome='REJECTED') }}">Rejected</a>
+    </div>
+  </section>
+
+  <section class="card security-card">
+    <div class="card-head"><h2>Security demo</h2></div>
+    <p class="muted small">Attempt an UPDATE directly against the ledger. The database trigger should abort it,
+      and the attempt should appear below as REJECTED.</p>
+    <form method="post" action="{{ url_for('demo_ledger_update') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-danger" type="submit">Try ledger UPDATE</button>
+    </form>
+  </section>
+</div>
+
+<section class="card">
+  {% if entries %}
+  <div class="table-wrap">
+    <table class="table audit-table">
+      <thead>
+        <tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Entity</th><th>Outcome</th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td class="mono small">{{ entry.ts }}</td>
+          <td>
+            {{ entry.username or 'system' }}<br>
+            <span class="muted small">{{ entry.role or 'SEED' }}</span>
+          </td>
+          <td class="mono small">{{ entry.action }}</td>
+          <td class="small">{{ entry.entity }}{% if entry.entity_id %} #{{ entry.entity_id }}{% endif %}</td>
+          <td><span class="badge {{ 'badge-ok' if entry.outcome == 'OK' else 'badge-danger' }}">{{ entry.outcome }}</span></td>
+          <td>
+            {% if entry.reason %}<p class="reason">{{ entry.reason }}</p>{% endif %}
+            <details>
+              <summary class="muted small">view JSON</summary>
+              <pre class="json">{{ entry.details|tojson(indent=2) }}</pre>
+            </details>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No audit entries match this filter.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Stored recall notices</h2>
+    <span class="muted small">{{ notices|length }} documents &middot; MongoDB-shaped, no joins</span>
+  </div>
+  {% if notices %}
+  <table class="table compact">
+    <thead><tr><th>Recall</th><th>Issued by</th><th>Notified facilities</th><th>Attachments</th></tr></thead>
+    <tbody>
+      {% for notice in notices %}
+      <tr>
+        <td class="mono strong">{{ notice.recall_code }}</td>
+        <td>{{ notice.issued_by }}</td>
+        <td>{{ notice.notified_facility_ids|length }}</td>
+        <td class="small">{{ notice.attachments|join(', ') if notice.attachments else '&mdash;'|safe }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No notice documents stored.</p>
+  {% endif %}
+</section>
+{% endblock %}

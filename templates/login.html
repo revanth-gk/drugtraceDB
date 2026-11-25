@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Sign in &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <section class="card auth-card">
+    <h1>DrugTrace</h1>
+    <p class="muted">Medicine batch traceability, recall exposure and ledger integrity.</p>
+
+    <form method="post" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>
+        Username
+        <input type="text" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+
+    <div class="demo-box">
+      <p class="eyebrow">Demo accounts</p>
+      <table class="table compact">
+        <thead><tr><th>Username</th><th>Role</th><th>Password</th></tr></thead>
+        <tbody>
+          <tr><td><code>alice.operator</code></td><td>OPERATOR</td><td><code>demo123</code></td></tr>
+          <tr><td><code>rita.recall</code></td><td>RECALL_OFFICER</td><td><code>demo123</code></td></tr>
+          <tr><td><code>victor.viewer</code></td><td>VIEWER</td><td><code>demo123</code></td></tr>
+        </tbody>
+      </table>
+      <p class="muted small">Passwords are stored as bcrypt hashes. Role checks are enforced server-side.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}

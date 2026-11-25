@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Expiry Watch &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Quality &middot; Regulatory</p>
+    <h1>Expiry Watch</h1>
+    <p class="muted">Derived from current stock. Identifies batches with remaining inventory approaching expiry.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 1rem;">
+  <div class="filter-row">
+    <a class="chip {{ 'chip-active' if days == 30 }}" href="{{ url_for('expiry', days=30) }}">Expiring in &le; 30 days</a>
+    <a class="chip {{ 'chip-active' if days == 60 }}" href="{{ url_for('expiry', days=60) }}">Expiring in &le; 60 days</a>
+    <a class="chip {{ 'chip-active' if days == 90 }}" href="{{ url_for('expiry', days=90) }}">Expiring in &le; 90 days</a>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Batches expiring within {{ days }} days</h2>
+    <span class="muted small">{{ rows|length }} facility/batch record{{ '' if rows|length == 1 else 's' }}</span>
+  </div>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Batch</th>
+          <th>Product</th>
+          <th>Facility</th>
+          <th>District</th>
+          <th class="num">In Stock</th>
+          <th>Expiry Date</th>
+          <th class="num">Days Left</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="mono strong">{{ row.batch_no }}</td>
+          <td>{{ row.brand_name }}</td>
+          <td>{{ row.facility_name }}</td>
+          <td>{{ row.district }}</td>
+          <td class="num">{{ "{:,}".format(row.qty) }}</td>
+          <td class="mono">{{ row.expiry_date }}</td>
+          <td class="num">
+            <span class="badge {{ 'badge-danger' if row.days_left <= 30 else 'badge-warn' }}">
+              {{ row.days_left }}d
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No batches with stock expiring within {{ days }} days.</p>
+  {% endif %}
+</section>
+{% endblock %}

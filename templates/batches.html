@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Batches &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Batch Explorer</p>
+    <h1>Batches</h1>
+    <p class="muted">Search by batch number, brand, generic name or manufacturer.</p>
+  </div>
+</div>
+
+<form class="card searchbar" method="get" action="{{ url_for('batches') }}">
+  <input type="search" name="q" value="{{ search }}" placeholder="e.g. B-104 or Paracetamol" aria-label="Search batches">
+  <button class="btn btn-primary" type="submit">Search</button>
+  {% if search %}<a class="btn btn-ghost" href="{{ url_for('batches') }}">Clear</a>{% endif %}
+</form>
+
+<section class="card">
+  <div class="card-head">
+    <h2>{{ 'Search results' if search else 'All batches' }}</h2>
+    <span class="muted small">{{ total_count if total_count is defined else batches|length }} total &middot; page {{ page if page is defined else 1 }} of {{ total_pages if total_pages is defined else 1 }}</span>
+  </div>
+  {% if batches %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Batch</th><th>Product</th><th>Manufacturer</th>
+          <th>Expiry</th><th class="num">In stock</th><th>Recall</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for batch in batches %}
+        <tr>
+          <td><a class="mono strong" href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">{{ batch.batch_no }}</a></td>
+          <td>{{ batch.brand_name }}<br><span class="muted small">{{ batch.generic_name }} &middot; {{ batch.strength }} &middot; {{ batch.dosage_form|lower }}</span></td>
+          <td>{{ batch.manufacturer }}</td>
+          <td class="mono">{{ batch.expiry_date }}</td>
+          <td class="num">{{ "{:,}".format(batch.total_stock) }}</td>
+          <td>
+            {% if batch.recall_clear %}
+              <span class="badge badge-muted">clear</span>
+            {% else %}
+              <span class="badge badge-danger">active recall</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No batches match &ldquo;{{ search }}&rdquo;.</p>
+  {% endif %}
+  {% if total_pages is defined and total_pages > 1 %}
+  <div class="pagination">
+    <div>
+      {% if page > 1 %}
+      <a class="btn btn-ghost" href="{{ url_for('batches', page=page-1, q=search) }}">&larr; Previous</a>
+      {% endif %}
+    </div>
+    <span class="muted small">Page {{ page }} of {{ total_pages }} ({{ total_count }} total)</span>
+    <div>
+      {% if page < total_pages %}
+      <a class="btn btn-ghost" href="{{ url_for('batches', page=page+1, q=search) }}">Next &rarr;</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

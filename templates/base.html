@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}DrugTrace{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="banner">Educational prototype &middot; synthetic data only &middot; not for clinical or regulatory use</div>
+
+  {% if g.user %}
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="{{ url_for('overview') }}">
+        <span class="brand-mark">DT</span> DrugTrace
+      </a>
+      <nav class="nav">
+        <a class="{{ 'active' if request.endpoint == 'overview' }}" href="{{ url_for('overview') }}">Overview</a>
+        <a class="{{ 'active' if request.endpoint in ('batches', 'batch_detail') }}" href="{{ url_for('batches') }}">Batches</a>
+        <a class="{{ 'active' if request.endpoint in ('recalls', 'recall_detail', 'recall_new') }}" href="{{ url_for('recalls') }}">Recalls</a>
+        <a class="{{ 'active' if request.endpoint == 'expiry' }}" href="{{ url_for('expiry') }}">Expiry</a>
+        {% if g.user['role'] in ('OPERATOR', 'RECALL_OFFICER') %}
+        <a class="{{ 'active' if request.endpoint == 'movement_new' }}" href="{{ url_for('movement_new') }}">Record movement</a>
+        {% endif %}
+        {% if g.user['role'] == 'RECALL_OFFICER' %}
+        <a class="{{ 'active' if request.endpoint == 'admin_users' }}" href="{{ url_for('admin_users') }}">Admin</a>
+        {% endif %}
+        <a class="{{ 'active' if request.endpoint == 'audit' }}" href="{{ url_for('audit') }}">Audit</a>
+        <a class="{{ 'active' if request.endpoint == 'ask' }}" href="{{ url_for('ask') }}">Ask&nbsp;DB</a>
+      </nav>
+      <div class="userbox">
+        <span class="who">{{ g.user['username'] }}</span>
+        <span class="role role-{{ g.user['role']|lower }}">{{ g.user['role'] }}</span>
+        <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="link-button" type="submit">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flashes">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">
+          <button class="flash-close" type="button" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+          {{ message }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="container footer">
+    <p><strong>Responsible-claims rule.</strong> DrugTrace records events entered into it. It does not
+      authenticate medicines, detect counterfeits, or hold patient data. A data mismatch means
+      &ldquo;needs human review&rdquo;, never &ldquo;fake&rdquo;.</p>
+    <p class="muted">Bare-bones DBMS prototype &middot; SQLite + JSONL stand-ins for MySQL 8 + MongoDB.</p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}User Management &middot; DrugTrace{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>User Management</h1>
+    <p class="muted">Role-gated account provisioning. Passwords are hashed with bcrypt. All changes are audited.</p>
+  </div>
+</div>
+
+<div class="two-col">
+  <section class="card">
+    <div class="card-head">
+      <h2>Existing Accounts</h2>
+      <span class="muted small">{{ users|length }} user{{ '' if users|length == 1 else 's' }}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="strong mono">{{ u.username }}</td>
+            <td>
+              <span class="role role-{{ u.role|lower }}">{{ u.role }}</span>
+            </td>
+            <td>
+              <details style="display:inline-block; margin-right: 0.5rem;">
+                <summary class="link-button small">Change role</summary>
+                <form method="post" action="{{ url_for('admin_users') }}" style="margin-top: 0.4rem;" class="stack">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="change_role">
+                  <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                  <select name="role" required style="padding: 0.2rem 0.4rem; font-size: 0.8rem;">
+                    <option value="OPERATOR" {{ 'selected' if u.role == 'OPERATOR' }}>OPERATOR</option>
+                    <option value="RECALL_OFFICER" {{ 'selected' if u.role == 'RECALL_OFFICER' }}>RECALL_OFFICER</option>
+                    <option value="VIEWER" {{ 'selected' if u.role == 'VIEWER' }}>VIEWER</option>
+                  </select>
+                  <button class="btn btn-ghost small" type="submit">Update</button>
+                </form>
+              </details>
+
+              <details style="display:inline-block; margin-right: 0.5rem;">
+                <summary class="link-button small">Reset PW</summary>
+                <form method="post" action="{{ url_for('admin_users') }}" style="margin-top: 0.4rem;" class="stack">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="reset_password">
+                  <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                  <input type="password" name="password" placeholder="Min 8 chars, 1 digit/symbol" required
+                         minlength="8" pattern=".*[\d\W_].*" title="Minimum 8 characters with at least one digit or symbol"
+                         style="padding: 0.2rem 0.4rem; font-size: 0.8rem; width: 140px;">
+                  <button class="btn btn-ghost small" type="submit">Save</button>
+                </form>
+              </details>
+
+              {% if u.user_id != g.user['user_id'] %}
+              <form method="post" action="{{ url_for('admin_users') }}" style="display:inline;" onsubmit="return confirm('Delete user {{ u.username }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                <button class="link-button small" type="submit" style="color: var(--danger);">Delete</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Create New Account</h2>
+    </div>
+    <form method="post" action="{{ url_for('admin_users') }}" class="stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="create">
+
+      <label>
+        Username
+        <input type="text" name="username" placeholder="e.g. john.smith" required
+               minlength="3" maxlength="30" pattern="^[a-zA-Z0-9_-]{3,30}$"
+               title="3 to 30 characters: letters, numbers, underscores, and hyphens only">
+        <span class="muted small">3&ndash;30 characters: letters, numbers, hyphens, underscores</span>
+      </label>
+
+      <label>
+        Password
+        <input type="password" name="password" required
+               minlength="8" pattern=".*[\d\W_].*"
+               title="Minimum 8 characters with at least one digit or symbol">
+        <span class="muted small">Minimum 8 characters, with at least 1 digit or symbol</span>
+      </label>
+
+      <label>
+        Role
+        <select name="role" required>
+          <option value="OPERATOR">OPERATOR &mdash; record stock movements</option>
+          <option value="RECALL_OFFICER">RECALL_OFFICER &mdash; issue/close recalls &amp; manage users</option>
+          <option value="VIEWER" selected>VIEWER &mdash; read dashboards &amp; ask NL questions</option>
+        </select>
+      </label>
+
+      <div style="margin-top: 0.5rem;">
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
